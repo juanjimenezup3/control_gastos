@@ -21,13 +21,14 @@ class GastoAdapter extends TypeAdapter<Gasto> {
       monto: fields[1] as double,
       estaPagado: fields[2] as bool,
       fecha: fields[3] as DateTime?,
+      fechaVencimiento: fields[4] as DateTime?,
     );
   }
 
   @override
   void write(BinaryWriter writer, Gasto obj) {
     writer
-      ..writeByte(4)
+      ..writeByte(5)
       ..writeByte(0)
       ..write(obj.nombre)
       ..writeByte(1)
@@ -35,7 +36,9 @@ class GastoAdapter extends TypeAdapter<Gasto> {
       ..writeByte(2)
       ..write(obj.estaPagado)
       ..writeByte(3)
-      ..write(obj.fecha);
+      ..write(obj.fecha)
+      ..writeByte(4)
+      ..write(obj.fechaVencimiento);
   }
 
   @override

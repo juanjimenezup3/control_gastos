@@ -13,18 +13,15 @@ class PantallaInicio extends StatefulWidget {
 class _PantallaInicioState extends State<PantallaInicio> {
   double dineroTotal = 0;
   late Box<Gasto> _gastosBox;
-  @override
-void initState() {
-  super.initState();
-  _gastosBox = Hive.box<Gasto>('gastos');
-  var configBox = Hive.box('config');
-  dineroTotal = (configBox.get('dineroTotal') ?? 0).toDouble();
-}
 
-  // --- 2. CONFIGURACIÓN DEL FORMATO ---
-  // Esto crea un formateador que pone puntos en miles y signo de pesos.
-  // decimalDigits: 0 hace que se vea "1.000.000" (sin centavos)
-  // Si quieres centavos, cambia a decimalDigits: 2
+  @override
+  void initState() {
+    super.initState();
+    _gastosBox = Hive.box<Gasto>('gastos');
+    var configBox = Hive.box('config');
+    dineroTotal = (configBox.get('dineroTotal') ?? 0).toDouble();
+  }
+
   final formater = NumberFormat.currency(locale: 'es_CO', symbol: '\$', decimalDigits: 0);
 
   void _mostrarDialogoAgregarDinero() {
@@ -51,15 +48,13 @@ void initState() {
             ),
             TextButton(
               onPressed: () {
-                // Quitamos puntos o comas antes de guardar para que no de error
                 String limpio = controlador.text.replaceAll('.', '').replaceAll(',', '');
                 double cantidad = double.tryParse(limpio) ?? 0;
-                
                 if (cantidad > 0) {
                   setState(() {
-                  dineroTotal += cantidad;
-                  Hive.box('config').put('dineroTotal', dineroTotal);
-                 });
+                    dineroTotal += cantidad;
+                    Hive.box('config').put('dineroTotal', dineroTotal);
+                  });
                   Navigator.pop(context);
                 }
               },
@@ -72,7 +67,6 @@ void initState() {
   }
 
   void _editarDineroTotal() {
-    // Al editar, mostramos el número limpio sin puntos para que sea fácil borrar
     TextEditingController controlador = TextEditingController(text: dineroTotal.toInt().toString());
 
     showDialog(
@@ -98,10 +92,9 @@ void initState() {
               onPressed: () {
                 String limpio = controlador.text.replaceAll('.', '').replaceAll(',', '');
                 double nuevoValor = double.tryParse(limpio) ?? dineroTotal;
-
                 setState(() {
-                dineroTotal = nuevoValor;
-                Hive.box('config').put('dineroTotal', dineroTotal);
+                  dineroTotal = nuevoValor;
+                  Hive.box('config').put('dineroTotal', dineroTotal);
                 });
                 Navigator.pop(context);
               },
@@ -116,6 +109,7 @@ void initState() {
   void _mostrarDialogoRestarDinero() {
     TextEditingController controladorNombre = TextEditingController();
     TextEditingController controladorMonto = TextEditingController();
+    DateTime? fechaVencimientoSeleccionada;
 
     showDialog(
       context: context,
@@ -141,6 +135,29 @@ void initState() {
                   prefixText: '\$',
                 ),
               ),
+              SizedBox(height: 10),
+              StatefulBuilder(
+                builder: (context, setStateDialog) {
+                  return TextButton.icon(
+                    icon: Icon(Icons.calendar_today),
+                    label: Text(fechaVencimientoSeleccionada == null
+                        ? 'Fecha de vencimiento (opcional)'
+                        : DateFormat('dd/MM/yyyy').format(fechaVencimientoSeleccionada!)),
+                    onPressed: () async {
+                      DateTime? fecha = await showDatePicker(
+                        context: context,
+                        firstDate: DateTime.now(),
+                        lastDate: DateTime(2100),
+                      );
+                      if (fecha != null) {
+                        setStateDialog(() {
+                          fechaVencimientoSeleccionada = fecha;
+                        });
+                      }
+                    },
+                  );
+                },
+              ),
             ],
           ),
           actions: [
@@ -156,9 +173,13 @@ void initState() {
 
                 if (nombre.isNotEmpty && monto > 0) {
                   setState(() {
-                  _gastosBox.add(Gasto(nombre: nombre, monto: monto));
-                  dineroTotal -= monto;
-                  Hive.box('config').put('dineroTotal', dineroTotal);
+                    _gastosBox.add(Gasto(
+                      nombre: nombre,
+                      monto: monto,
+                      fechaVencimiento: fechaVencimientoSeleccionada,
+                    ));
+                    dineroTotal -= monto;
+                    Hive.box('config').put('dineroTotal', dineroTotal);
                   });
                   Navigator.pop(context);
                 }
@@ -204,9 +225,8 @@ void initState() {
                         Icon(Icons.edit, size: 16, color: Colors.grey),
                       ],
                     ),
-                    // --- 3. AQUÍ USAMOS EL FORMATEADOR ---
                     Text(
-                      formater.format(dineroTotal), // <--- ¡Mira esto!
+                      formater.format(dineroTotal),
                       style: TextStyle(
                         fontSize: 40,
                         fontWeight: FontWeight.bold,
@@ -252,37 +272,49 @@ void initState() {
                           color: gasto.estaPagado ? Colors.green.shade50 : null,
                           child: ListTile(
                             leading: Checkbox(
-                              value : gasto.estaPagado,onChanged:(valor){
+                              value: gasto.estaPagado,
+                              onChanged: (valor) {
                                 setState(() {
                                   gasto.estaPagado = valor!;
-                            
+                                  gasto.save();
                                 });
-                              },),
+                              },
+                            ),
                             title: Text(
                               gasto.nombre,
                               style: TextStyle(
                                 decoration: gasto.estaPagado ? TextDecoration.lineThrough : TextDecoration.none,
                                 color: gasto.estaPagado ? Colors.grey : Colors.black,
-                              )),
-                            subtitle: Text('${gasto.estaPagado ? 'Pagado' : 'Pendiente'} • ${DateFormat('dd/MM/yyyy HH:mm').format(gasto.fecha)}'),
+                              ),
+                            ),
+                            subtitle: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('${gasto.estaPagado ? 'Pagado' : 'Pendiente'} • ${DateFormat('dd/MM/yyyy HH:mm').format(gasto.fecha)}'),
+                                if (gasto.fechaVencimiento != null)
+                                  Text(
+                                    'Vence: ${DateFormat('dd/MM/yyyy').format(gasto.fechaVencimiento!)}',
+                                    style: TextStyle(color: Colors.orange.shade700, fontWeight: FontWeight.bold),
+                                  ),
+                              ],
+                            ),
                             trailing: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                // --- 4. TAMBIÉN FORMATEAMOS LOS GASTOS ---
                                 Text(
-                                  '-${formater.format(gasto.monto)}', // <--- ¡Y aquí!
+                                  '-${formater.format(gasto.monto)}',
                                   style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                                 ),
                                 IconButton(
                                   icon: Icon(Icons.delete, color: Colors.grey),
                                   onPressed: () {
-                                   setState(() {
-                                   dineroTotal += gasto.monto;
-                                    Hive.box('config').put('dineroTotal', dineroTotal);
-                                   _gastosBox.deleteAt(index);
-                                   });
+                                    setState(() {
+                                      dineroTotal += gasto.monto;
+                                      Hive.box('config').put('dineroTotal', dineroTotal);
+                                      _gastosBox.deleteAt(index);
+                                    });
                                   },
-                                )
+                                ),
                               ],
                             ),
                           ),
