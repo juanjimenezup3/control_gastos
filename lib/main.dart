@@ -12,6 +12,8 @@ void main() async {
 }
 
 class  MiAppDeGastos extends StatelessWidget {
+  const MiAppDeGastos({super.key});
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(

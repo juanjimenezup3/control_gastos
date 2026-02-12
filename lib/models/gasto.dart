@@ -12,6 +12,9 @@ class Gasto extends HiveObject {
 
   @HiveField(2)
   bool estaPagado;
+  
+  @HiveField(3)
+  DateTime fecha;
 
-  Gasto({required this.nombre, required this.monto, this.estaPagado = false});
+  Gasto({required this.nombre, required this.monto, this.estaPagado = false, DateTime? fecha}) : fecha = fecha ?? DateTime.now();
 } 

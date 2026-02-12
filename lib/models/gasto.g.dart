@@ -20,19 +20,22 @@ class GastoAdapter extends TypeAdapter<Gasto> {
       nombre: fields[0] as String,
       monto: fields[1] as double,
       estaPagado: fields[2] as bool,
+      fecha: fields[3] as DateTime?,
     );
   }
 
   @override
   void write(BinaryWriter writer, Gasto obj) {
     writer
-      ..writeByte(3)
+      ..writeByte(4)
       ..writeByte(0)
       ..write(obj.nombre)
       ..writeByte(1)
       ..write(obj.monto)
       ..writeByte(2)
-      ..write(obj.estaPagado);
+      ..write(obj.estaPagado)
+      ..writeByte(3)
+      ..write(obj.fecha);
   }
 
   @override

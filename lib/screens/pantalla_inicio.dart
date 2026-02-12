@@ -4,6 +4,8 @@ import '../models/gasto.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 
 class PantallaInicio extends StatefulWidget {
+  const PantallaInicio({super.key});
+
   @override
   State<PantallaInicio> createState() => _PantallaInicioState();
 }
@@ -262,7 +264,7 @@ void initState() {
                                 decoration: gasto.estaPagado ? TextDecoration.lineThrough : TextDecoration.none,
                                 color: gasto.estaPagado ? Colors.grey : Colors.black,
                               )),
-                            subtitle: Text(gasto.estaPagado ? 'Pagado' : 'Pendiente'),
+                            subtitle: Text('${gasto.estaPagado ? 'Pagado' : 'Pendiente'} • ${DateFormat('dd/MM/yyyy HH:mm').format(gasto.fecha)}'),
                             trailing: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
