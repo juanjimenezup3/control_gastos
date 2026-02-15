@@ -1,27 +1,42 @@
 import 'package:flutter/material.dart';
-import 'screens/pantalla_inicio.dart';
-import 'models/gasto.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+
+import 'models/gasto.dart';
+import 'screens/pantalla_inicio.dart';
+// IMPORTANTE: Asegúrate de que el nombre del archivo coincida (con 's' o sin 's')
+import 'services/notification_service.dart'; 
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  
   await Hive.initFlutter();
   Hive.registerAdapter(GastoAdapter());
-  await Hive.openBox<Gasto>('gastos');
+  
   await Hive.openBox('config');
-  runApp(MiAppDeGastos());
+  await Hive.openBox<Gasto>('gastos');
+
+  await NotificationService.init(); 
+
+  runApp(const MyApp());
 }
 
-class  MiAppDeGastos extends StatelessWidget {
-  const MiAppDeGastos({super.key});
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      debugShowCheckedModeBanner: false,
       title: 'Control de Gastos',
-      theme: ThemeData(primarySwatch: Colors.blue),
-      home: PantallaInicio(),
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blueAccent),
+        useMaterial3: true,
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Colors.blueAccent,
+          foregroundColor: Colors.white,
+        ),
+      ),
+      home: const PantallaInicio(),
     );
   }
 }
-
-
