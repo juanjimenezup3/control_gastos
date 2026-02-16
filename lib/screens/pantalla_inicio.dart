@@ -4,6 +4,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:vibration/vibration.dart';
 import '../services/notification_service.dart';
 import '../models/gasto.dart';
+import '../models/tarea.dart';
 import 'pantalla_estadisticas.dart';
 
 class PantallaInicio extends StatefulWidget {
@@ -16,13 +17,16 @@ class PantallaInicio extends StatefulWidget {
 class _PantallaInicioState extends State<PantallaInicio> with SingleTickerProviderStateMixin {
   double dineroTotal = 0;
   late Box<Gasto> _gastosBox;
+  late Box<Tarea> _tareasBox;
   late TabController _tabController;
   final formater = NumberFormat.currency(locale: 'es_CO', symbol: '\$', decimalDigits: 0);
+  final fechaHoraFormat = DateFormat('dd/MM/yyyy hh:mm a');
 
   @override
   void initState() {
     super.initState();
     _gastosBox = Hive.box<Gasto>('gastos');
+    _tareasBox = Hive.box<Tarea>('tareas');
     final configBox = Hive.box('config');
     dineroTotal = (configBox.get('dineroTotal') ?? 0).toDouble();
     _tabController = TabController(length: 2, vsync: this);
@@ -34,6 +38,36 @@ class _PantallaInicioState extends State<PantallaInicio> with SingleTickerProvid
     super.dispose();
   }
 
+  // --- SELECCIONAR FECHA Y HORA ---
+  Future<DateTime?> _seleccionarFechaYHora(BuildContext context, DateTime? fechaInicial) async {
+    final DateTime? fecha = await showDatePicker(
+      context: context,
+      initialDate: fechaInicial ?? DateTime.now(),
+      firstDate: DateTime.now(),
+      lastDate: DateTime(2100),
+    );
+
+    if (fecha == null) return null;
+
+    if (!context.mounted) return fecha;
+    
+    final TimeOfDay? hora = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(fechaInicial ?? DateTime.now()),
+    );
+
+    if (hora == null) return fecha;
+
+    return DateTime(
+      fecha.year,
+      fecha.month,
+      fecha.day,
+      hora.hour,
+      hora.minute,
+    );
+  }
+
+  // --- LOGICA DINERO ---
   void _actualizarSaldo(double nuevoSaldo) {
     setState(() {
       dineroTotal = nuevoSaldo;
@@ -91,17 +125,15 @@ class _PantallaInicioState extends State<PantallaInicio> with SingleTickerProvid
               const SizedBox(height: 15),
               StatefulBuilder(
                 builder: (context, setStepState) => TextButton.icon(
-                  icon: const Icon(Icons.calendar_month),
+                  icon: const Icon(Icons.access_time_filled),
                   label: Text(fechaVencimiento == null
-                      ? 'Fecha límite (Opcional)'
-                      : 'Vence: ${DateFormat('dd/MM/yyyy').format(fechaVencimiento!)}'),
+                      ? 'Programar Fecha y Hora'
+                      : 'Vence: ${fechaHoraFormat.format(fechaVencimiento!)}'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: fechaVencimiento != null ? Colors.blueAccent : Colors.grey,
+                  ),
                   onPressed: () async {
-                    DateTime? picked = await showDatePicker(
-                      context: context,
-                      initialDate: DateTime.now(),
-                      firstDate: DateTime.now(),
-                      lastDate: DateTime(2100),
-                    );
+                    DateTime? picked = await _seleccionarFechaYHora(context, null);
                     if (picked != null) setStepState(() => fechaVencimiento = picked);
                   },
                 ),
@@ -115,9 +147,11 @@ class _PantallaInicioState extends State<PantallaInicio> with SingleTickerProvid
             onPressed: () {
               String nombre = controladorNombre.text.trim();
               double monto = double.tryParse(controladorMonto.text.replaceAll('.', '').replaceAll(',', '')) ?? 0;
+
               if (nombre.isNotEmpty && monto > 0) {
                 final nuevoGasto = Gasto(nombre: nombre, monto: monto, fechaVencimiento: fechaVencimiento);
                 _gastosBox.add(nuevoGasto);
+
                 if (fechaVencimiento != null) {
                   NotificationService.programarAviso(
                     id: nuevoGasto.hashCode,
@@ -126,6 +160,7 @@ class _PantallaInicioState extends State<PantallaInicio> with SingleTickerProvid
                     fechaVencimiento: fechaVencimiento!,
                   );
                 }
+
                 _actualizarSaldo(dineroTotal - monto);
                 Navigator.pop(context);
               }
@@ -137,7 +172,165 @@ class _PantallaInicioState extends State<PantallaInicio> with SingleTickerProvid
     );
   }
 
-  void _mostrarDialogoEditar(int realIndex, Gasto gasto) {
+  // --- LOGICA TAREAS ---
+
+  void _mostrarDialogoAgregarTarea() {
+    TextEditingController controladorNombre = TextEditingController();
+    TextEditingController controladorDesc = TextEditingController();
+    DateTime? fechaLimite;
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Nueva Tarea'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: controladorNombre, 
+                decoration: const InputDecoration(labelText: 'Nombre de la tarea', hintText: 'Ej: Pagar internet'),
+                textCapitalization: TextCapitalization.sentences,
+              ),
+              TextField(
+                controller: controladorDesc,
+                decoration: const InputDecoration(labelText: 'Descripción (Opcional)'),
+                textCapitalization: TextCapitalization.sentences,
+              ),
+              const SizedBox(height: 15),
+              StatefulBuilder(
+                builder: (context, setStepState) => TextButton.icon(
+                  icon: const Icon(Icons.access_time_filled),
+                  label: Text(fechaLimite == null
+                      ? 'Programar Fecha y Hora'
+                      : 'Para el: ${fechaHoraFormat.format(fechaLimite!)}'),
+                   style: TextButton.styleFrom(
+                    foregroundColor: fechaLimite != null ? Colors.blueAccent : Colors.grey,
+                  ),
+                  onPressed: () async {
+                    DateTime? picked = await _seleccionarFechaYHora(context, null);
+                    if (picked != null) setStepState(() => fechaLimite = picked);
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent, foregroundColor: Colors.white),
+            onPressed: () {
+              String nombre = controladorNombre.text.trim();
+              String desc = controladorDesc.text.trim();
+
+              if (nombre.isNotEmpty) {
+                final nuevaTarea = Tarea(
+                  nombre: nombre, 
+                  descripcion: desc,
+                  fechaLimite: fechaLimite,
+                  estaCompletada: false
+                );
+                
+                _tareasBox.add(nuevaTarea);
+
+                if (fechaLimite != null) {
+                  NotificationService.programarAviso(
+                    id: nuevaTarea.hashCode,
+                    titulo: '¡Tarea Pendiente!',
+                    cuerpo: 'Recuerda: $nombre',
+                    fechaVencimiento: fechaLimite!,
+                  );
+                }
+                Navigator.pop(context);
+              }
+            },
+            child: const Text('Guardar Tarea'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _mostrarDialogoEditarTarea(Tarea tarea) {
+    TextEditingController controladorNombre = TextEditingController(text: tarea.nombre);
+    TextEditingController controladorDesc = TextEditingController(text: tarea.descripcion);
+    DateTime? fechaLimite = tarea.fechaLimite;
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Editar Tarea'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: controladorNombre, 
+                decoration: const InputDecoration(labelText: 'Nombre de la tarea'),
+                textCapitalization: TextCapitalization.sentences,
+              ),
+              TextField(
+                controller: controladorDesc,
+                decoration: const InputDecoration(labelText: 'Descripción'),
+                textCapitalization: TextCapitalization.sentences,
+              ),
+              const SizedBox(height: 15),
+              StatefulBuilder(
+                builder: (context, setStepState) => TextButton.icon(
+                  icon: const Icon(Icons.access_time_filled),
+                  label: Text(fechaLimite == null
+                      ? 'Programar Fecha y Hora'
+                      : 'Para el: ${fechaHoraFormat.format(fechaLimite!)}'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: fechaLimite != null ? Colors.blueAccent : Colors.grey,
+                  ),
+                  onPressed: () async {
+                    DateTime? picked = await _seleccionarFechaYHora(context, fechaLimite);
+                    if (picked != null) setStepState(() => fechaLimite = picked);
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
+          ElevatedButton(
+            onPressed: () {
+              String nombre = controladorNombre.text.trim();
+              String desc = controladorDesc.text.trim();
+
+              if (nombre.isNotEmpty) {
+                // Cancelamos la notificación anterior si existía
+                NotificationService.cancelarNotificacion(tarea.hashCode);
+
+                tarea.nombre = nombre;
+                tarea.descripcion = desc;
+                tarea.fechaLimite = fechaLimite;
+                tarea.save();
+
+                // Programamos la nueva si hay fecha
+                if (fechaLimite != null && !tarea.estaCompletada) {
+                  NotificationService.programarAviso(
+                    id: tarea.hashCode,
+                    titulo: '¡Tarea Pendiente!',
+                    cuerpo: 'Recuerda: $nombre',
+                    fechaVencimiento: fechaLimite!,
+                  );
+                }
+                Navigator.pop(context);
+              }
+            },
+            child: const Text('Guardar Cambios'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // --- EDITAR GASTO ---
+  void _mostrarDialogoEditarGasto(int realIndex, Gasto gasto) {
     TextEditingController controladorNombre = TextEditingController(text: gasto.nombre);
     TextEditingController controladorMonto = TextEditingController(text: gasto.monto.toInt().toString());
     DateTime? fechaVencimiento = gasto.fechaVencimiento;
@@ -150,27 +343,18 @@ class _PantallaInicioState extends State<PantallaInicio> with SingleTickerProvid
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              TextField(controller: controladorNombre, decoration: const InputDecoration(labelText: '¿En qué gastaste?')),
-              TextField(
-                controller: controladorMonto,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'Monto', prefixText: '\$'),
-              ),
+              TextField(controller: controladorNombre, decoration: const InputDecoration(labelText: 'Concepto')),
+              TextField(controller: controladorMonto, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Monto')),
               const SizedBox(height: 15),
               StatefulBuilder(
                 builder: (context, setStepState) => TextButton.icon(
-                  icon: const Icon(Icons.calendar_month),
+                  icon: const Icon(Icons.access_time_filled),
                   label: Text(fechaVencimiento == null
-                      ? 'Fecha límite (Opcional)'
-                      : 'Vence: ${DateFormat('dd/MM/yyyy').format(fechaVencimiento!)}'),
+                      ? 'Sin fecha límite'
+                      : 'Vence: ${fechaHoraFormat.format(fechaVencimiento!)}'),
                   onPressed: () async {
-                    DateTime? picked = await showDatePicker(
-                      context: context,
-                      initialDate: fechaVencimiento ?? DateTime.now(),
-                      firstDate: DateTime.now(),
-                      lastDate: DateTime(2100),
-                    );
-                    if (picked != null) setStepState(() => fechaVencimiento = picked);
+                     DateTime? picked = await _seleccionarFechaYHora(context, fechaVencimiento);
+                     if (picked != null) setStepState(() => fechaVencimiento = picked);
                   },
                 ),
               ),
@@ -178,49 +362,62 @@ class _PantallaInicioState extends State<PantallaInicio> with SingleTickerProvid
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
-          ElevatedButton(
-            onPressed: () {
-              String nombre = controladorNombre.text.trim();
-              double nuevoMonto = double.tryParse(controladorMonto.text.replaceAll('.', '').replaceAll(',', '')) ?? 0;
-              if (nombre.isNotEmpty && nuevoMonto > 0) {
-                double diferencia = nuevoMonto - gasto.monto;
-                gasto.nombre = nombre;
-                gasto.monto = nuevoMonto;
-                gasto.fechaVencimiento = fechaVencimiento;
-                gasto.save();
-                _actualizarSaldo(dineroTotal - diferencia);
-                Navigator.pop(context);
-              }
-            },
-            child: const Text('Guardar'),
-          ),
-        ],
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
+            ElevatedButton(
+                onPressed: () {
+                     String nombre = controladorNombre.text.trim();
+                     double nuevoMonto = double.tryParse(controladorMonto.text) ?? 0;
+                     if(nombre.isNotEmpty){
+                        double diferencia = nuevoMonto - gasto.monto;
+                        
+                        NotificationService.cancelarNotificacion(gasto.hashCode);
+
+                        gasto.nombre = nombre;
+                        gasto.monto = nuevoMonto;
+                        gasto.fechaVencimiento = fechaVencimiento;
+                        gasto.save();
+                        _actualizarSaldo(dineroTotal - diferencia);
+                        
+                        if(fechaVencimiento != null && !gasto.estaPagado) {
+                           NotificationService.programarAviso(
+                              id: gasto.hashCode, 
+                              titulo: '¡Vencimiento Actualizado!', 
+                              cuerpo: 'Vence: $nombre', 
+                              fechaVencimiento: fechaVencimiento!
+                           );
+                        }
+                        Navigator.pop(context);
+                     }
+                },
+                child: const Text('Guardar'))
+        ]
       ),
     );
   }
-
-  void _confirmarEliminacion(int index, Gasto gasto) async {
-    Vibration.vibrate(duration: 200);
+  
+  void _confirmarEliminacionGenerica({
+      required String titulo, 
+      required String contenido, 
+      required VoidCallback onConfirm
+  }) async {
+    if (await Vibration.hasVibrator() ?? false) {
+      Vibration.vibrate(duration: 200);
+    }
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('¿Eliminar registro?'),
-        content: Text('Se devolverán ${formater.format(gasto.monto)} a tu saldo.'),
+        title: Text(titulo),
+        content: Text(contenido),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('NO')),
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () {
-              NotificationService.cancelarNotificacion(gasto.hashCode);
-              _actualizarSaldo(dineroTotal + gasto.monto);
-              _gastosBox.deleteAt(index);
+              onConfirm();
               Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Eliminado correctamente')),
-              );
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Eliminado correctamente')));
             },
-            child: const Text('SÍ, ELIMINAR', style: TextStyle(color: Colors.white)),
+            child: const Text('ELIMINAR', style: TextStyle(color: Colors.white)),
           ),
         ],
       ),
@@ -251,8 +448,8 @@ class _PantallaInicioState extends State<PantallaInicio> with SingleTickerProvid
           unselectedLabelColor: Colors.white70,
           labelStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
           tabs: const [
-            Tab(text: 'GASTOS PENDIENTES'),
-            Tab(text: 'TAREAS PENDIENTES'),
+            Tab(text: 'GASTOS'),
+            Tab(text: 'TAREAS'),
           ],
         ),
       ),
@@ -266,6 +463,7 @@ class _PantallaInicioState extends State<PantallaInicio> with SingleTickerProvid
     );
   }
 
+  // --- WIDGETS GASTOS ---
   Widget _buildTarjetaSaldo() {
     bool esPositivo = dineroTotal >= 0;
     return Container(
@@ -298,7 +496,7 @@ class _PantallaInicioState extends State<PantallaInicio> with SingleTickerProvid
     );
   }
 
-  Widget _buildFilaBotones() {
+  Widget _buildFilaBotonesGastos() {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
       children: [
@@ -318,11 +516,11 @@ class _PantallaInicioState extends State<PantallaInicio> with SingleTickerProvid
     );
   }
 
-  Widget _buildListaMovimientos() {
+  Widget _buildListaGastos() {
     return ValueListenableBuilder(
       valueListenable: _gastosBox.listenable(),
       builder: (context, Box<Gasto> box, _) {
-        if (box.isEmpty) return const Center(child: Text("No hay registros aún."));
+        if (box.isEmpty) return const Center(child: Text("No hay gastos registrados."));
 
         final lista = box.values.toList().reversed.toList();
 
@@ -332,7 +530,7 @@ class _PantallaInicioState extends State<PantallaInicio> with SingleTickerProvid
           itemBuilder: (context, index) {
             final gasto = lista[index];
             final realIndex = box.length - 1 - index;
-
+            
             bool estaVencido = gasto.fechaVencimiento != null &&
                 gasto.fechaVencimiento!.isBefore(DateTime.now()) &&
                 !gasto.estaPagado;
@@ -341,8 +539,16 @@ class _PantallaInicioState extends State<PantallaInicio> with SingleTickerProvid
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
               margin: const EdgeInsets.symmetric(horizontal: 5, vertical: 5),
               child: ListTile(
-                onTap: () => _mostrarDialogoEditar(realIndex, gasto),
-                onLongPress: () => _confirmarEliminacion(realIndex, gasto),
+                onTap: () => _mostrarDialogoEditarGasto(realIndex, gasto),
+                onLongPress: () => _confirmarEliminacionGenerica(
+                    titulo: "¿Eliminar Gasto?", 
+                    contenido: "Se devolverán ${formater.format(gasto.monto)} al saldo.",
+                    onConfirm: () {
+                        NotificationService.cancelarNotificacion(gasto.hashCode);
+                        _actualizarSaldo(dineroTotal + gasto.monto);
+                        _gastosBox.deleteAt(realIndex);
+                    }
+                ),
                 leading: Checkbox(
                   activeColor: Colors.green,
                   value: gasto.estaPagado,
@@ -364,38 +570,156 @@ class _PantallaInicioState extends State<PantallaInicio> with SingleTickerProvid
                     color: gasto.estaPagado ? Colors.grey : Colors.black87,
                   ),
                 ),
+                subtitle: gasto.fechaVencimiento != null 
+                    ? Text('Vence: ${fechaHoraFormat.format(gasto.fechaVencimiento!)}',
+                        style: TextStyle(color: estaVencido ? Colors.red : Colors.grey))
+                    : null,
+                trailing: Text(
+                  "-${formater.format(gasto.monto)}",
+                  style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // --- WIDGETS TAREAS ---
+  Widget _buildPestanaTareas() {
+    return Column(
+      children: [
+        const SizedBox(height: 20),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: SizedBox(
+            width: double.infinity,
+            height: 50,
+            child: ElevatedButton.icon(
+              icon: const Icon(Icons.add_task),
+              label: const Text("AGREGAR NUEVA TAREA", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blueAccent,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              onPressed: _mostrarDialogoAgregarTarea,
+            ),
+          ),
+        ),
+        const Padding(
+          padding: EdgeInsets.fromLTRB(20, 20, 20, 10),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Text("Lista de Tareas", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          ),
+        ),
+        Expanded(child: _buildListaTareas()),
+      ],
+    );
+  }
+
+  Widget _buildListaTareas() {
+    return ValueListenableBuilder(
+      valueListenable: _tareasBox.listenable(),
+      builder: (context, Box<Tarea> box, _) {
+        if (box.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.task_alt, size: 60, color: Colors.grey[300]),
+                const SizedBox(height: 10),
+                Text("¡Todo al día!", style: TextStyle(color: Colors.grey[500])),
+              ],
+            ),
+          );
+        }
+
+        final lista = box.values.toList().reversed.toList();
+
+        return ListView.builder(
+          itemCount: lista.length,
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          itemBuilder: (context, index) {
+            final tarea = lista[index];
+            final realIndex = box.length - 1 - index;
+            
+            bool estaVencida = tarea.fechaLimite != null &&
+                tarea.fechaLimite!.isBefore(DateTime.now()) &&
+                !tarea.estaCompletada;
+
+            return Card(
+              elevation: 2,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+              margin: const EdgeInsets.symmetric(horizontal: 5, vertical: 5),
+              child: ListTile(
+                onTap: () => _mostrarDialogoEditarTarea(tarea), // <--- AQUI ESTABA LO QUE FALTABA
+                onLongPress: () => _confirmarEliminacionGenerica(
+                    titulo: "¿Eliminar Tarea?",
+                    contenido: "Esta acción no se puede deshacer.",
+                    onConfirm: () {
+                        NotificationService.cancelarNotificacion(tarea.hashCode);
+                        _tareasBox.deleteAt(realIndex);
+                    }
+                ),
+                leading: Checkbox(
+                  activeColor: Colors.blueAccent,
+                  value: tarea.estaCompletada,
+                  onChanged: (v) {
+                    setState(() {
+                      tarea.estaCompletada = v!;
+                      if (tarea.estaCompletada) {
+                        NotificationService.cancelarNotificacion(tarea.hashCode);
+                      }
+                    });
+                    tarea.save();
+                  },
+                ),
+                title: Text(
+                  tarea.nombre,
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    decoration: tarea.estaCompletada ? TextDecoration.lineThrough : null,
+                    color: tarea.estaCompletada ? Colors.grey : Colors.black87,
+                  ),
+                ),
                 subtitle: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(DateFormat('dd/MM/yyyy').format(gasto.fecha)),
-                    if (gasto.fechaVencimiento != null)
+                    if (tarea.descripcion.isNotEmpty)
+                      Text(tarea.descripcion, maxLines: 1, overflow: TextOverflow.ellipsis),
+                    if (tarea.fechaLimite != null)
                       Padding(
-                        padding: const EdgeInsets.only(top: 2),
-                        child: Text(
-                          'Vence: ${DateFormat('dd/MM/yyyy').format(gasto.fechaVencimiento!)}',
-                          style: TextStyle(
-                            color: estaVencido ? Colors.red : Colors.orange.shade800,
-                            fontWeight: estaVencido ? FontWeight.bold : FontWeight.normal,
-                          ),
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Row(
+                          children: [
+                            Icon(Icons.access_time, size: 14, color: estaVencida ? Colors.red : Colors.grey),
+                            const SizedBox(width: 4),
+                            Text(
+                              fechaHoraFormat.format(tarea.fechaLimite!),
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: estaVencida ? Colors.red : Colors.grey[600],
+                                fontWeight: estaVencida ? FontWeight.bold : FontWeight.normal,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                    const Text(
-                      'Mantén presionado para eliminar',
-                      style: TextStyle(fontSize: 10, color: Colors.grey),
-                    ),
                   ],
                 ),
-                trailing: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(
-                      "-${formater.format(gasto.monto)}",
-                      style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+                trailing: IconButton(
+                    icon: const Icon(Icons.delete_outline, color: Colors.grey),
+                    onPressed: () => _confirmarEliminacionGenerica(
+                        titulo: "¿Eliminar Tarea?",
+                        contenido: "Se borrará permanentemente.",
+                        onConfirm: () {
+                             NotificationService.cancelarNotificacion(tarea.hashCode);
+                            _tareasBox.deleteAt(realIndex);
+                        }
                     ),
-                    if (estaVencido)
-                      const Icon(Icons.warning_amber_rounded, color: Colors.red, size: 20),
-                  ],
                 ),
               ),
             );
@@ -409,7 +733,7 @@ class _PantallaInicioState extends State<PantallaInicio> with SingleTickerProvid
     return Column(
       children: [
         _buildTarjetaSaldo(),
-        _buildFilaBotones(),
+        _buildFilaBotonesGastos(),
         const Padding(
           padding: EdgeInsets.fromLTRB(20, 20, 20, 10),
           child: Align(
@@ -417,14 +741,8 @@ class _PantallaInicioState extends State<PantallaInicio> with SingleTickerProvid
             child: Text("Historial de Gastos", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
           ),
         ),
-        Expanded(child: _buildListaMovimientos()),
+        Expanded(child: _buildListaGastos()),
       ],
-    );
-  }
-
-  Widget _buildPestanaTareas() {
-    return const Center(
-      child: Text("Tareas Pendientes - Próximamente"),
     );
   }
 }
