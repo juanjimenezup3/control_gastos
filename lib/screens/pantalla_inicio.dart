@@ -13,9 +13,10 @@ class PantallaInicio extends StatefulWidget {
   State<PantallaInicio> createState() => _PantallaInicioState();
 }
 
-class _PantallaInicioState extends State<PantallaInicio> {
+class _PantallaInicioState extends State<PantallaInicio> with SingleTickerProviderStateMixin {
   double dineroTotal = 0;
   late Box<Gasto> _gastosBox;
+  late TabController _tabController;
   final formater = NumberFormat.currency(locale: 'es_CO', symbol: '\$', decimalDigits: 0);
 
   @override
@@ -24,6 +25,13 @@ class _PantallaInicioState extends State<PantallaInicio> {
     _gastosBox = Hive.box<Gasto>('gastos');
     final configBox = Hive.box('config');
     dineroTotal = (configBox.get('dineroTotal') ?? 0).toDouble();
+    _tabController = TabController(length: 2, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
   }
 
   void _actualizarSaldo(double nuevoSaldo) {
@@ -236,19 +244,23 @@ class _PantallaInicioState extends State<PantallaInicio> {
             ),
           )
         ],
+        bottom: TabBar(
+          controller: _tabController,
+          indicatorColor: Colors.white,
+          labelColor: Colors.white,
+          unselectedLabelColor: Colors.white70,
+          labelStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+          tabs: const [
+            Tab(text: 'GASTOS PENDIENTES'),
+            Tab(text: 'TAREAS PENDIENTES'),
+          ],
+        ),
       ),
-      body: Column(
+      body: TabBarView(
+        controller: _tabController,
         children: [
-          _buildTarjetaSaldo(),
-          _buildFilaBotones(),
-          const Padding(
-            padding: EdgeInsets.fromLTRB(20, 20, 20, 10),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Text("Movimientos Recientes", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            ),
-          ),
-          Expanded(child: _buildListaMovimientos()),
+          _buildPestanaGastos(),
+          _buildPestanaTareas(),
         ],
       ),
     );
@@ -390,6 +402,29 @@ class _PantallaInicioState extends State<PantallaInicio> {
           },
         );
       },
+    );
+  }
+
+  Widget _buildPestanaGastos() {
+    return Column(
+      children: [
+        _buildTarjetaSaldo(),
+        _buildFilaBotones(),
+        const Padding(
+          padding: EdgeInsets.fromLTRB(20, 20, 20, 10),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Text("Historial de Gastos", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          ),
+        ),
+        Expanded(child: _buildListaMovimientos()),
+      ],
+    );
+  }
+
+  Widget _buildPestanaTareas() {
+    return const Center(
+      child: Text("Tareas Pendientes - Próximamente"),
     );
   }
 }
