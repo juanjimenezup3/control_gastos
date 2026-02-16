@@ -18,6 +18,7 @@ dependencies:
   timezone: ^0.9.4
   fl_chart: ^0.70.0
   vibration: ^3.1.6
+  flutter_timezone: ^3.0.1
 
 dev_dependencies:
   flutter_test:

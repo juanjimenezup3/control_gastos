@@ -1,18 +1,23 @@
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest.dart' as tz;
-import 'package:flutter/foundation.dart'; // Para kDebugMode
+import 'package:flutter_timezone/flutter_timezone.dart'; // Importante
+import 'dart:developer'; // Para ver logs en consola
 
 class NotificationService {
   static final FlutterLocalNotificationsPlugin _notificationsPlugin =
       FlutterLocalNotificationsPlugin();
 
   static Future<void> init() async {
-    // 1. Inicializar zonas horarias (Vital para alarmas exactas)
+    // 1. Inicializar la base de datos de zonas horarias
     tz.initializeTimeZones();
     
-    // 2. Configuración para Android (Icono de la app)
-    // Asegúrate de tener un icono llamado 'ic_launcher' o 'app_icon' en android/app/src/main/res/drawable
+    // 2. Obtener la ubicación REAL del celular (ej: America/Bogota)
+    final String timeZoneName = await FlutterTimezone.getLocalTimezone();
+    tz.setLocalLocation(tz.getLocation(timeZoneName));
+    log("Zona horaria configurada: $timeZoneName");
+
+    // 3. Configuración básica
     const AndroidInitializationSettings androidSettings =
         AndroidInitializationSettings('@mipmap/ic_launcher');
 
@@ -20,23 +25,7 @@ class NotificationService {
       android: androidSettings,
     );
 
-    // 3. Inicializar el plugin
-    await _notificationsPlugin.initialize(
-      settings,
-      onDidReceiveNotificationResponse: (NotificationResponse response) {
-        // Aquí puedes manejar qué pasa cuando tocan la notificación
-        if (kDebugMode) {
-          print('Notificación tocada: ${response.payload}');
-        }
-      },
-    );
-
-    // 4. Pedir permisos en Android 13+ (Opcional pero recomendado)
-    final AndroidFlutterLocalNotificationsPlugin? androidImplementation =
-        _notificationsPlugin.resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>();
-            
-    await androidImplementation?.requestNotificationsPermission();
+    await _notificationsPlugin.initialize(settings);
   }
 
   static Future<void> programarAviso({
@@ -46,32 +35,37 @@ class NotificationService {
     required DateTime fechaVencimiento,
   }) async {
     
-    // Si la fecha ya pasó, no programamos nada
-    if (fechaVencimiento.isBefore(DateTime.now())) return;
-
-    // Convertimos la fecha a la zona horaria local
-    final tz.TZDateTime scheduledDate = tz.TZDateTime.from(
+    // Convertir la fecha que elegiste a la zona horaria TZ
+    final tz.TZDateTime fechaProgramada = tz.TZDateTime.from(
       fechaVencimiento,
       tz.local,
     );
+
+    // Si la fecha ya pasó, no hacemos nada
+    if (fechaProgramada.isBefore(tz.TZDateTime.now(tz.local))) {
+      log("INTENTO FALLIDO: La hora elegida ya pasó ($fechaProgramada)");
+      return;
+    }
+
+    log("PROGRAMANDO ALARMA: $titulo para $fechaProgramada (ID: $id)");
 
     await _notificationsPlugin.zonedSchedule(
       id,
       titulo,
       cuerpo,
-      scheduledDate,
+      fechaProgramada,
       const NotificationDetails(
         android: AndroidNotificationDetails(
-          'canal_alertas_gastos', // ID del canal (no cambiar)
-          'Recordatorios de Pagos', // Nombre visible para el usuario
-          channelDescription: 'Notificaciones para recordar pagos y tareas',
-          importance: Importance.max, // <--- ESTO HACE QUE SUENE
-          priority: Priority.high,    // <--- ESTO HACE QUE SALGA ARRIBA
+          'canal_alertas_v2', // CAMBIAMOS EL ID PARA FORZAR SONIDO
+          'Alertas Importantes',
+          channelDescription: 'Canal para recordatorios de gastos y tareas',
+          importance: Importance.max,
+          priority: Priority.high,
           playSound: true,
           enableVibration: true,
         ),
       ),
-      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle, // Permite sonar incluso en modo ahorro
+      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
       uiLocalNotificationDateInterpretation:
           UILocalNotificationDateInterpretation.absoluteTime,
     );
@@ -79,5 +73,6 @@ class NotificationService {
 
   static Future<void> cancelarNotificacion(int id) async {
     await _notificationsPlugin.cancel(id);
+    log("Notificación cancelada (ID: $id)");
   }
 }
