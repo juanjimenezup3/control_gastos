@@ -1,11 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-
-// --- ESTA ES LA LÍNEA QUE TE FALTA ---
-import '../services/notification_service.dart'; 
-// --------------------------------------
-
+import 'package:vibration/vibration.dart';
+import '../services/notification_service.dart';
 import '../models/gasto.dart';
 import 'pantalla_estadisticas.dart';
 
@@ -24,7 +21,6 @@ class _PantallaInicioState extends State<PantallaInicio> {
   @override
   void initState() {
     super.initState();
-    // Se asume que las cajas ya se abrieron en main.dart
     _gastosBox = Hive.box<Gasto>('gastos');
     final configBox = Hive.box('config');
     dineroTotal = (configBox.get('dineroTotal') ?? 0).toDouble();
@@ -36,10 +32,6 @@ class _PantallaInicioState extends State<PantallaInicio> {
       Hive.box('config').put('dineroTotal', dineroTotal);
     });
   }
-
-  // ==========================================
-  //            LÓGICA DE DIÁLOGOS
-  // ==========================================
 
   void _mostrarDialogoAgregarDinero() {
     TextEditingController controlador = TextEditingController();
@@ -92,9 +84,9 @@ class _PantallaInicioState extends State<PantallaInicio> {
               StatefulBuilder(
                 builder: (context, setStepState) => TextButton.icon(
                   icon: const Icon(Icons.calendar_month),
-                  label: Text(fechaVencimiento == null 
-                    ? 'Fecha límite (Opcional)' 
-                    : 'Vence: ${DateFormat('dd/MM/yyyy').format(fechaVencimiento!)}'),
+                  label: Text(fechaVencimiento == null
+                      ? 'Fecha límite (Opcional)'
+                      : 'Vence: ${DateFormat('dd/MM/yyyy').format(fechaVencimiento!)}'),
                   onPressed: () async {
                     DateTime? picked = await showDatePicker(
                       context: context,
@@ -115,18 +107,9 @@ class _PantallaInicioState extends State<PantallaInicio> {
             onPressed: () {
               String nombre = controladorNombre.text.trim();
               double monto = double.tryParse(controladorMonto.text.replaceAll('.', '').replaceAll(',', '')) ?? 0;
-
               if (nombre.isNotEmpty && monto > 0) {
-                final nuevoGasto = Gasto(
-                  nombre: nombre,
-                  monto: monto,
-                  fechaVencimiento: fechaVencimiento,
-                );
-
-                // 1. Guardar en Hive
+                final nuevoGasto = Gasto(nombre: nombre, monto: monto, fechaVencimiento: fechaVencimiento);
                 _gastosBox.add(nuevoGasto);
-
-                // 2. Programar Notificación (Si tiene fecha)
                 if (fechaVencimiento != null) {
                   NotificationService.programarAviso(
                     id: nuevoGasto.hashCode,
@@ -135,7 +118,6 @@ class _PantallaInicioState extends State<PantallaInicio> {
                     fechaVencimiento: fechaVencimiento!,
                   );
                 }
-
                 _actualizarSaldo(dineroTotal - monto);
                 Navigator.pop(context);
               }
@@ -147,7 +129,71 @@ class _PantallaInicioState extends State<PantallaInicio> {
     );
   }
 
-  void _confirmarEliminacion(int index, Gasto gasto) {
+  void _mostrarDialogoEditar(int realIndex, Gasto gasto) {
+    TextEditingController controladorNombre = TextEditingController(text: gasto.nombre);
+    TextEditingController controladorMonto = TextEditingController(text: gasto.monto.toInt().toString());
+    DateTime? fechaVencimiento = gasto.fechaVencimiento;
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Editar Gasto'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(controller: controladorNombre, decoration: const InputDecoration(labelText: '¿En qué gastaste?')),
+              TextField(
+                controller: controladorMonto,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: 'Monto', prefixText: '\$'),
+              ),
+              const SizedBox(height: 15),
+              StatefulBuilder(
+                builder: (context, setStepState) => TextButton.icon(
+                  icon: const Icon(Icons.calendar_month),
+                  label: Text(fechaVencimiento == null
+                      ? 'Fecha límite (Opcional)'
+                      : 'Vence: ${DateFormat('dd/MM/yyyy').format(fechaVencimiento!)}'),
+                  onPressed: () async {
+                    DateTime? picked = await showDatePicker(
+                      context: context,
+                      initialDate: fechaVencimiento ?? DateTime.now(),
+                      firstDate: DateTime.now(),
+                      lastDate: DateTime(2100),
+                    );
+                    if (picked != null) setStepState(() => fechaVencimiento = picked);
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
+          ElevatedButton(
+            onPressed: () {
+              String nombre = controladorNombre.text.trim();
+              double nuevoMonto = double.tryParse(controladorMonto.text.replaceAll('.', '').replaceAll(',', '')) ?? 0;
+              if (nombre.isNotEmpty && nuevoMonto > 0) {
+                double diferencia = nuevoMonto - gasto.monto;
+                gasto.nombre = nombre;
+                gasto.monto = nuevoMonto;
+                gasto.fechaVencimiento = fechaVencimiento;
+                gasto.save();
+                _actualizarSaldo(dineroTotal - diferencia);
+                Navigator.pop(context);
+              }
+            },
+            child: const Text('Guardar'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmarEliminacion(int index, Gasto gasto) async {
+    Vibration.vibrate(duration: 200);
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -158,16 +204,12 @@ class _PantallaInicioState extends State<PantallaInicio> {
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () {
-              // 1. Cancelar la notificación antes de borrar
               NotificationService.cancelarNotificacion(gasto.hashCode);
-
-              // 2. Devolver dinero y borrar
               _actualizarSaldo(dineroTotal + gasto.monto);
               _gastosBox.deleteAt(index);
               Navigator.pop(context);
-              
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Eliminado correctamente'))
+                const SnackBar(content: Text('Eliminado correctamente')),
               );
             },
             child: const Text('SÍ, ELIMINAR', style: TextStyle(color: Colors.white)),
@@ -176,10 +218,6 @@ class _PantallaInicioState extends State<PantallaInicio> {
       ),
     );
   }
-
-  // ==========================================
-  //            DISEÑO DE PANTALLA
-  // ==========================================
 
   @override
   Widget build(BuildContext context) {
@@ -193,8 +231,8 @@ class _PantallaInicioState extends State<PantallaInicio> {
             icon: const Icon(Icons.pie_chart),
             tooltip: "Ver Estadísticas",
             onPressed: () => Navigator.push(
-              context, 
-              MaterialPageRoute(builder: (context) => const PantallaEstadisticas())
+              context,
+              MaterialPageRoute(builder: (context) => const PantallaEstadisticas()),
             ),
           )
         ],
@@ -206,8 +244,8 @@ class _PantallaInicioState extends State<PantallaInicio> {
           const Padding(
             padding: EdgeInsets.fromLTRB(20, 20, 20, 10),
             child: Align(
-              alignment: Alignment.centerLeft, 
-              child: Text("Movimientos Recientes", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold))
+              alignment: Alignment.centerLeft,
+              child: Text("Movimientos Recientes", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             ),
           ),
           Expanded(child: _buildListaMovimientos()),
@@ -224,9 +262,9 @@ class _PantallaInicioState extends State<PantallaInicio> {
       padding: const EdgeInsets.all(30),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: esPositivo 
-            ? [Colors.green.shade400, Colors.green.shade700] 
-            : [Colors.red.shade400, Colors.red.shade700],
+          colors: esPositivo
+              ? [Colors.green.shade400, Colors.green.shade700]
+              : [Colors.red.shade400, Colors.red.shade700],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
@@ -253,14 +291,14 @@ class _PantallaInicioState extends State<PantallaInicio> {
       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
       children: [
         ElevatedButton.icon(
-          onPressed: _mostrarDialogoAgregarDinero, 
-          icon: const Icon(Icons.add), 
+          onPressed: _mostrarDialogoAgregarDinero,
+          icon: const Icon(Icons.add),
           label: const Text("Ingreso"),
           style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
         ),
         ElevatedButton.icon(
-          onPressed: _mostrarDialogoRestarDinero, 
-          icon: const Icon(Icons.remove), 
+          onPressed: _mostrarDialogoRestarDinero,
+          icon: const Icon(Icons.remove),
           label: const Text("Gasto"),
           style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
         ),
@@ -283,15 +321,15 @@ class _PantallaInicioState extends State<PantallaInicio> {
             final gasto = lista[index];
             final realIndex = box.length - 1 - index;
 
-            // Verificar si está vencido
-            bool estaVencido = gasto.fechaVencimiento != null && 
-                               gasto.fechaVencimiento!.isBefore(DateTime.now()) && 
-                               !gasto.estaPagado;
+            bool estaVencido = gasto.fechaVencimiento != null &&
+                gasto.fechaVencimiento!.isBefore(DateTime.now()) &&
+                !gasto.estaPagado;
 
             return Card(
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
               margin: const EdgeInsets.symmetric(horizontal: 5, vertical: 5),
               child: ListTile(
+                onTap: () => _mostrarDialogoEditar(realIndex, gasto),
                 onLongPress: () => _confirmarEliminacion(realIndex, gasto),
                 leading: Checkbox(
                   activeColor: Colors.green,
@@ -299,7 +337,6 @@ class _PantallaInicioState extends State<PantallaInicio> {
                   onChanged: (v) {
                     setState(() {
                       gasto.estaPagado = v!;
-                      // IMPORTANTE: Si se paga, cancelar la notificación
                       if (gasto.estaPagado) {
                         NotificationService.cancelarNotificacion(gasto.hashCode);
                       }
@@ -330,6 +367,10 @@ class _PantallaInicioState extends State<PantallaInicio> {
                           ),
                         ),
                       ),
+                    const Text(
+                      'Mantén presionado para eliminar',
+                      style: TextStyle(fontSize: 10, color: Colors.grey),
+                    ),
                   ],
                 ),
                 trailing: Column(
@@ -340,7 +381,7 @@ class _PantallaInicioState extends State<PantallaInicio> {
                       "-${formater.format(gasto.monto)}",
                       style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
                     ),
-                    if (estaVencido) 
+                    if (estaVencido)
                       const Icon(Icons.warning_amber_rounded, color: Colors.red, size: 20),
                   ],
                 ),
