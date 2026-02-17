@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 
 import 'models/gasto.dart';
-import 'models/tarea.dart'; // <--- 1. NUEVO: Importamos el modelo
+import 'models/tarea.dart';
 import 'screens/pantalla_inicio.dart';
 import 'services/notification_service.dart'; 
 
@@ -13,12 +13,12 @@ void main() async {
   
   // Registramos los adaptadores
   Hive.registerAdapter(GastoAdapter());
-  Hive.registerAdapter(TareaAdapter()); // <--- 2. NUEVO: Registramos el adaptador de Tareas
+  Hive.registerAdapter(TareaAdapter());
   
   // Abrimos las cajas (base de datos)
   await Hive.openBox('config');
   await Hive.openBox<Gasto>('gastos');
-  await Hive.openBox<Tarea>('tareas'); // <--- 3. NUEVO: Abrimos la caja de tareas
+  await Hive.openBox<Tarea>('tareas');
 
   await NotificationService.init(); 
 
@@ -32,13 +32,14 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Control de Gastos',
+      title: 'Priority Control Gastos', // Nombre actualizado
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blueAccent),
         useMaterial3: true,
         appBarTheme: const AppBarTheme(
           backgroundColor: Colors.blueAccent,
           foregroundColor: Colors.white,
+          centerTitle: true, // Centramos el título por estética
         ),
       ),
       home: const PantallaInicio(),

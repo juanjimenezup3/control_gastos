@@ -38,6 +38,29 @@ class _PantallaInicioState extends State<PantallaInicio> with SingleTickerProvid
     super.dispose();
   }
 
+  // --- GASTO HORMIGA ---
+  void _registrarGastoHormiga(double monto) async {
+    if (await Vibration.hasVibrator() ?? false) {
+      Vibration.vibrate(duration: 50);
+    }
+    
+    final nuevoGasto = Gasto(
+      nombre: "Gasto Hormiga 🐜",
+      monto: monto,
+    );
+    
+    _gastosBox.add(nuevoGasto);
+    _actualizarSaldo(dineroTotal - monto);
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Hormiga detectada: -${formater.format(monto)}'),
+        duration: const Duration(seconds: 1),
+        backgroundColor: Colors.brown,
+      ),
+    );
+  }
+
   // --- SELECCIONAR FECHA Y HORA ---
   Future<DateTime?> _seleccionarFechaYHora(BuildContext context, DateTime? fechaInicial) async {
     final DateTime? fecha = await showDatePicker(
@@ -516,6 +539,16 @@ class _PantallaInicioState extends State<PantallaInicio> with SingleTickerProvid
     );
   }
 
+  Widget _botonGastoRapido(double monto) {
+    return ActionChip(
+      label: Text(formater.format(monto)),
+      onPressed: () => _registrarGastoHormiga(monto),
+      backgroundColor: Colors.white,
+      elevation: 2,
+      avatar: const Icon(Icons.add, size: 14, color: Colors.brown),
+    );
+  }
+
   Widget _buildListaGastos() {
     return ValueListenableBuilder(
       valueListenable: _gastosBox.listenable(),
@@ -549,19 +582,21 @@ class _PantallaInicioState extends State<PantallaInicio> with SingleTickerProvid
                         _gastosBox.deleteAt(realIndex);
                     }
                 ),
-                leading: Checkbox(
-                  activeColor: Colors.green,
-                  value: gasto.estaPagado,
-                  onChanged: (v) {
-                    setState(() {
-                      gasto.estaPagado = v!;
-                      if (gasto.estaPagado) {
-                        NotificationService.cancelarNotificacion(gasto.hashCode);
-                      }
-                    });
-                    gasto.save();
-                  },
-                ),
+                leading: gasto.nombre.contains('🐜')
+                    ? const Icon(Icons.bug_report, color: Colors.brown)
+                    : Checkbox(
+                        activeColor: Colors.green,
+                        value: gasto.estaPagado,
+                        onChanged: (v) {
+                          setState(() {
+                            gasto.estaPagado = v!;
+                            if (gasto.estaPagado) {
+                              NotificationService.cancelarNotificacion(gasto.hashCode);
+                            }
+                          });
+                          gasto.save();
+                        },
+                      ),
                 title: Text(
                   gasto.nombre,
                   style: TextStyle(
@@ -655,7 +690,7 @@ class _PantallaInicioState extends State<PantallaInicio> with SingleTickerProvid
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
               margin: const EdgeInsets.symmetric(horizontal: 5, vertical: 5),
               child: ListTile(
-                onTap: () => _mostrarDialogoEditarTarea(tarea), // <--- AQUI ESTABA LO QUE FALTABA
+                onTap: () => _mostrarDialogoEditarTarea(tarea),
                 onLongPress: () => _confirmarEliminacionGenerica(
                     titulo: "¿Eliminar Tarea?",
                     contenido: "Esta acción no se puede deshacer.",
@@ -734,8 +769,22 @@ class _PantallaInicioState extends State<PantallaInicio> with SingleTickerProvid
       children: [
         _buildTarjetaSaldo(),
         _buildFilaBotonesGastos(),
+        const SizedBox(height: 10),
+        const Text("¿Gasto hormiga? 🐜", style: TextStyle(color: Colors.grey, fontSize: 12)),
+        const SizedBox(height: 8),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            _botonGastoRapido(2000),
+            const SizedBox(width: 10),
+            _botonGastoRapido(5000),
+            const SizedBox(width: 10),
+            _botonGastoRapido(10000),
+          ],
+        ),
+        const Divider(height: 30),
         const Padding(
-          padding: EdgeInsets.fromLTRB(20, 20, 20, 10),
+          padding: EdgeInsets.fromLTRB(20, 0, 20, 10),
           child: Align(
             alignment: Alignment.centerLeft,
             child: Text("Historial de Gastos", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
