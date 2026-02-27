@@ -1,3 +1,5 @@
+import 'package:google_mobile_ads/google_mobile_ads.dart';
+import '../services/ad_service.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:hive_flutter/hive_flutter.dart';
@@ -47,6 +49,7 @@ class _PantallaInicioState extends State<PantallaInicio> with SingleTickerProvid
     final nuevoGasto = Gasto(
       nombre: "Gasto Hormiga 🐜",
       monto: monto,
+      esFijo: false, // Las hormigas siempre son gastos variables
     );
     
     _gastosBox.add(nuevoGasto);
@@ -63,20 +66,21 @@ class _PantallaInicioState extends State<PantallaInicio> with SingleTickerProvid
 
   // --- SELECCIONAR FECHA Y HORA ---
   Future<DateTime?> _seleccionarFechaYHora(BuildContext context, DateTime? fechaInicial) async {
+    final now = DateTime.now(); 
+    
     final DateTime? fecha = await showDatePicker(
       context: context,
-      initialDate: fechaInicial ?? DateTime.now(),
-      firstDate: DateTime.now(),
+      initialDate: (fechaInicial != null && !fechaInicial.isBefore(now)) ? fechaInicial : now,
+      firstDate: now.subtract(const Duration(days: 1)), 
       lastDate: DateTime(2100),
     );
 
     if (fecha == null) return null;
-
     if (!context.mounted) return fecha;
     
     final TimeOfDay? hora = await showTimePicker(
       context: context,
-      initialTime: TimeOfDay.fromDateTime(fechaInicial ?? DateTime.now()),
+      initialTime: TimeOfDay.fromDateTime(fechaInicial ?? now),
     );
 
     if (hora == null) return fecha;
@@ -96,6 +100,47 @@ class _PantallaInicioState extends State<PantallaInicio> with SingleTickerProvid
       dineroTotal = nuevoSaldo;
       Hive.box('config').put('dineroTotal', dineroTotal);
     });
+  }
+
+  // --- EDITAR SALDO GENERAL ---
+  void _mostrarDialogoEditarSaldo() {
+    TextEditingController controlador = TextEditingController(text: dineroTotal.toInt().toString());
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Corregir Saldo Total'),
+        content: TextField(
+          controller: controlador,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(
+            labelText: 'Saldo real actual', 
+            prefixText: '\$',
+            hintText: 'Ej: 150000'
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent, foregroundColor: Colors.white),
+            onPressed: () {
+              double nuevoSaldo = double.tryParse(controlador.text.replaceAll('.', '').replaceAll(',', '')) ?? dineroTotal;
+              _actualizarSaldo(nuevoSaldo);
+              Navigator.pop(context);
+              
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('¡Saldo corregido exitosamente!'), 
+                  backgroundColor: Colors.green,
+                  duration: Duration(seconds: 2),
+                ),
+              );
+            },
+            child: const Text('Actualizar'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _mostrarDialogoAgregarDinero() {
@@ -130,6 +175,7 @@ class _PantallaInicioState extends State<PantallaInicio> with SingleTickerProvid
     TextEditingController controladorNombre = TextEditingController();
     TextEditingController controladorMonto = TextEditingController();
     DateTime? fechaVencimiento;
+    bool esFijoLocal = false; // 📌 Estado para controlar el Switch
 
     showDialog(
       context: context,
@@ -146,19 +192,30 @@ class _PantallaInicioState extends State<PantallaInicio> with SingleTickerProvid
                 decoration: const InputDecoration(labelText: 'Monto', prefixText: '\$'),
               ),
               const SizedBox(height: 15),
+              
+              // 📌 Selector para Gasto Fijo o Variable
               StatefulBuilder(
-                builder: (context, setStepState) => TextButton.icon(
-                  icon: const Icon(Icons.access_time_filled),
-                  label: Text(fechaVencimiento == null
-                      ? 'Programar Fecha y Hora'
-                      : 'Vence: ${fechaHoraFormat.format(fechaVencimiento!)}'),
-                  style: TextButton.styleFrom(
-                    foregroundColor: fechaVencimiento != null ? Colors.blueAccent : Colors.grey,
-                  ),
-                  onPressed: () async {
-                    DateTime? picked = await _seleccionarFechaYHora(context, null);
-                    if (picked != null) setStepState(() => fechaVencimiento = picked);
-                  },
+                builder: (context, setStepState) => Column(
+                  children: [
+                    SwitchListTile(
+                      title: const Text("¿Es un gasto fijo?", style: TextStyle(fontSize: 14)),
+                      subtitle: Text(esFijoLocal ? "Mensual / Obligatorio" : "Gasto ocasional", style: TextStyle(fontSize: 12)),
+                      value: esFijoLocal,
+                      onChanged: (bool value) {
+                        setStepState(() => esFijoLocal = value);
+                      },
+                    ),
+                    TextButton.icon(
+                      icon: const Icon(Icons.access_time_filled),
+                      label: Text(fechaVencimiento == null
+                          ? 'Programar Fecha'
+                          : 'Vence: ${fechaHoraFormat.format(fechaVencimiento!)}'),
+                      onPressed: () async {
+                        DateTime? picked = await _seleccionarFechaYHora(context, null);
+                        if (picked != null) setStepState(() => fechaVencimiento = picked);
+                      },
+                    ),
+                  ],
                 ),
               ),
             ],
@@ -172,18 +229,14 @@ class _PantallaInicioState extends State<PantallaInicio> with SingleTickerProvid
               double monto = double.tryParse(controladorMonto.text.replaceAll('.', '').replaceAll(',', '')) ?? 0;
 
               if (nombre.isNotEmpty && monto > 0) {
-                final nuevoGasto = Gasto(nombre: nombre, monto: monto, fechaVencimiento: fechaVencimiento);
+                // 📌 Guardamos el gasto incluyendo si es fijo
+                final nuevoGasto = Gasto(
+                  nombre: nombre, 
+                  monto: monto, 
+                  fechaVencimiento: fechaVencimiento,
+                  esFijo: esFijoLocal
+                );
                 _gastosBox.add(nuevoGasto);
-
-                if (fechaVencimiento != null) {
-                  NotificationService.programarAviso(
-                    id: nuevoGasto.hashCode,
-                    titulo: '¡Vencimiento de Pago!',
-                    cuerpo: 'Hoy vence: $nombre por ${formater.format(monto)}',
-                    fechaVencimiento: fechaVencimiento!,
-                  );
-                }
-
                 _actualizarSaldo(dineroTotal - monto);
                 Navigator.pop(context);
               }
@@ -196,7 +249,6 @@ class _PantallaInicioState extends State<PantallaInicio> with SingleTickerProvid
   }
 
   // --- LOGICA TAREAS ---
-
   void _mostrarDialogoAgregarTarea() {
     TextEditingController controladorNombre = TextEditingController();
     TextEditingController controladorDesc = TextEditingController();
@@ -325,15 +377,12 @@ class _PantallaInicioState extends State<PantallaInicio> with SingleTickerProvid
               String desc = controladorDesc.text.trim();
 
               if (nombre.isNotEmpty) {
-                // Cancelamos la notificación anterior si existía
                 NotificationService.cancelarNotificacion(tarea.hashCode);
-
                 tarea.nombre = nombre;
                 tarea.descripcion = desc;
                 tarea.fechaLimite = fechaLimite;
                 tarea.save();
 
-                // Programamos la nueva si hay fecha
                 if (fechaLimite != null && !tarea.estaCompletada) {
                   NotificationService.programarAviso(
                     id: tarea.hashCode,
@@ -352,11 +401,11 @@ class _PantallaInicioState extends State<PantallaInicio> with SingleTickerProvid
     );
   }
 
-  // --- EDITAR GASTO ---
   void _mostrarDialogoEditarGasto(int realIndex, Gasto gasto) {
     TextEditingController controladorNombre = TextEditingController(text: gasto.nombre);
     TextEditingController controladorMonto = TextEditingController(text: gasto.monto.toInt().toString());
     DateTime? fechaVencimiento = gasto.fechaVencimiento;
+    bool esFijoLocal = gasto.esFijo; // Cargamos el estado actual
 
     showDialog(
       context: context,
@@ -370,15 +419,26 @@ class _PantallaInicioState extends State<PantallaInicio> with SingleTickerProvid
               TextField(controller: controladorMonto, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Monto')),
               const SizedBox(height: 15),
               StatefulBuilder(
-                builder: (context, setStepState) => TextButton.icon(
-                  icon: const Icon(Icons.access_time_filled),
-                  label: Text(fechaVencimiento == null
-                      ? 'Sin fecha límite'
-                      : 'Vence: ${fechaHoraFormat.format(fechaVencimiento!)}'),
-                  onPressed: () async {
-                     DateTime? picked = await _seleccionarFechaYHora(context, fechaVencimiento);
-                     if (picked != null) setStepState(() => fechaVencimiento = picked);
-                  },
+                builder: (context, setStepState) => Column(
+                  children: [
+                    SwitchListTile(
+                      title: const Text("¿Es un gasto fijo?", style: TextStyle(fontSize: 14)),
+                      value: esFijoLocal,
+                      onChanged: (bool value) {
+                        setStepState(() => esFijoLocal = value);
+                      },
+                    ),
+                    TextButton.icon(
+                      icon: const Icon(Icons.access_time_filled),
+                      label: Text(fechaVencimiento == null
+                          ? 'Sin fecha límite'
+                          : 'Vence: ${fechaHoraFormat.format(fechaVencimiento!)}'),
+                      onPressed: () async {
+                         DateTime? picked = await _seleccionarFechaYHora(context, fechaVencimiento);
+                         if (picked != null) setStepState(() => fechaVencimiento = picked);
+                      },
+                    ),
+                  ],
                 ),
               ),
             ],
@@ -392,12 +452,12 @@ class _PantallaInicioState extends State<PantallaInicio> with SingleTickerProvid
                      double nuevoMonto = double.tryParse(controladorMonto.text) ?? 0;
                      if(nombre.isNotEmpty){
                         double diferencia = nuevoMonto - gasto.monto;
-                        
                         NotificationService.cancelarNotificacion(gasto.hashCode);
 
                         gasto.nombre = nombre;
                         gasto.monto = nuevoMonto;
                         gasto.fechaVencimiento = fechaVencimiento;
+                        gasto.esFijo = esFijoLocal; // Actualizamos el tipo
                         gasto.save();
                         _actualizarSaldo(dineroTotal - diferencia);
                         
@@ -483,38 +543,50 @@ class _PantallaInicioState extends State<PantallaInicio> with SingleTickerProvid
           _buildPestanaTareas(),
         ],
       ),
+      bottomNavigationBar: _buildBannerAd(),
     );
   }
 
   // --- WIDGETS GASTOS ---
   Widget _buildTarjetaSaldo() {
     bool esPositivo = dineroTotal >= 0;
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.all(20),
-      padding: const EdgeInsets.all(30),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: esPositivo
-              ? [Colors.green.shade400, Colors.green.shade700]
-              : [Colors.red.shade400, Colors.red.shade700],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 10, offset: const Offset(0, 5))],
-      ),
-      child: Column(
-        children: [
-          const Text('Saldo Disponible', style: TextStyle(color: Colors.white70, fontSize: 16)),
-          const SizedBox(height: 5),
-          FittedBox(
-            child: Text(
-              formater.format(dineroTotal),
-              style: const TextStyle(fontSize: 40, fontWeight: FontWeight.bold, color: Colors.white),
-            ),
+    
+    return GestureDetector(
+      onTap: _mostrarDialogoEditarSaldo,
+      child: Container(
+        width: double.infinity,
+        margin: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(30),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: esPositivo
+                ? [Colors.green.shade400, Colors.green.shade700]
+                : [Colors.red.shade400, Colors.red.shade700],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
           ),
-        ],
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 10, offset: Offset(0, 5))],
+        ),
+        child: Column(
+          children: [
+            const Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text('Saldo Disponible', style: TextStyle(color: Colors.white70, fontSize: 16)),
+                SizedBox(width: 8),
+                Icon(Icons.edit, color: Colors.white70, size: 16),
+              ],
+            ),
+            const SizedBox(height: 5),
+            FittedBox(
+              child: Text(
+                formater.format(dineroTotal),
+                style: const TextStyle(fontSize: 40, fontWeight: FontWeight.bold, color: Colors.white),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -597,13 +669,30 @@ class _PantallaInicioState extends State<PantallaInicio> with SingleTickerProvid
                           gasto.save();
                         },
                       ),
-                title: Text(
-                  gasto.nombre,
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    decoration: gasto.estaPagado ? TextDecoration.lineThrough : null,
-                    color: gasto.estaPagado ? Colors.grey : Colors.black87,
-                  ),
+                // 📌 Título modificado para mostrar la etiqueta "FIJO"
+                title: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        gasto.nombre,
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          decoration: gasto.estaPagado ? TextDecoration.lineThrough : null,
+                          color: gasto.estaPagado ? Colors.grey : Colors.black87,
+                        ),
+                      ),
+                    ),
+                    if (gasto.esFijo)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.blue.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(5),
+                          border: Border.all(color: Colors.blueAccent, width: 0.5),
+                        ),
+                        child: const Text("FIJO", style: TextStyle(fontSize: 10, color: Colors.blueAccent, fontWeight: FontWeight.bold)),
+                      ),
+                  ],
                 ),
                 subtitle: gasto.fechaVencimiento != null 
                     ? Text('Vence: ${fechaHoraFormat.format(gasto.fechaVencimiento!)}',
@@ -792,6 +881,19 @@ class _PantallaInicioState extends State<PantallaInicio> with SingleTickerProvid
         ),
         Expanded(child: _buildListaGastos()),
       ],
+    );
+  }
+
+  // --- WIDGET PUBLICIDAD ADMOB ---
+  Widget _buildBannerAd() {
+    final banner = AdService.crearBanner();
+    banner.load();
+    
+    return Container(
+      color: Colors.white, 
+      height: 50,
+      width: double.infinity,
+      child: AdWidget(ad: banner),
     );
   }
 }
