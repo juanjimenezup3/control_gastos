@@ -1,3 +1,5 @@
+import 'package:google_mobile_ads/google_mobile_ads.dart';
+import '../services/ad_service.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:hive_flutter/hive_flutter.dart';
@@ -66,7 +68,7 @@ class _PantallaInicioState extends State<PantallaInicio> with SingleTickerProvid
     final DateTime? fecha = await showDatePicker(
       context: context,
       initialDate: fechaInicial ?? DateTime.now(),
-      firstDate: DateTime.now(),
+      firstDate: DateTime.now().subtract(Duration(days: 1)),
       lastDate: DateTime(2100),
     );
 
@@ -483,6 +485,8 @@ class _PantallaInicioState extends State<PantallaInicio> with SingleTickerProvid
           _buildPestanaTareas(),
         ],
       ),
+      // AQUÍ AGREGAMOS LA BARRA DEL ANUNCIO EN EL SCAFFOLD
+      bottomNavigationBar: _buildBannerAd(),
     );
   }
 
@@ -792,6 +796,19 @@ class _PantallaInicioState extends State<PantallaInicio> with SingleTickerProvid
         ),
         Expanded(child: _buildListaGastos()),
       ],
+    );
+  }
+
+  // --- WIDGET PUBLICIDAD ADMOB ---
+  Widget _buildBannerAd() {
+    final banner = AdService.crearBanner();
+    banner.load();
+    
+    return Container(
+      color: Colors.white, 
+      height: 50,
+      width: double.infinity,
+      child: AdWidget(ad: banner),
     );
   }
 }

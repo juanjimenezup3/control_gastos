@@ -1,3 +1,4 @@
+import 'package:control_gastos/services/ad_service.dart';
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 
@@ -8,6 +9,9 @@ import 'services/notification_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  
+  // Inicializar Google AdMob
+  await AdService.init();
   
   await Hive.initFlutter();
   
