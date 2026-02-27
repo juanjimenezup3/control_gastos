@@ -43,3 +43,9 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+# Hive generated files
+*.g.dart
+
+# Flutter plugins
+.flutter-plugins
+.packages
